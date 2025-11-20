@@ -2,11 +2,24 @@
 
 This document describes how to build SaneSideButtons from source and create a distributable DMG file.
 
-## Prerequisites
+## ⚡ Don't Want to Install Xcode?
+
+**Use GitHub Actions instead!** Every commit automatically builds DMG files in the cloud.
+
+Run `./download_dmg.sh` for instructions, or go directly to:
+- **View builds**: https://github.com/frankuyan/SaneSideButtons/actions
+- **Download releases**: https://github.com/frankuyan/SaneSideButtons/releases
+
+You can download pre-built DMG files without installing anything locally.
+
+## Prerequisites (for Local Builds)
 
 - macOS 13.0 (Ventura) or later
-- Xcode 15.0 or later
+- **Xcode 15.0 or later** (Command Line Tools alone are NOT sufficient)
 - Optional: `create-dmg` for prettier DMG files (`brew install create-dmg`)
+
+> **Note**: Building .xcodeproj files requires full Xcode installation (16+ GB).
+> If you don't want to install Xcode, use GitHub Actions (see above).
 
 ## Local Build (Manual)
 
