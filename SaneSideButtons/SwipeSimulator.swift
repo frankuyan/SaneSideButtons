@@ -51,6 +51,9 @@ final class SwipeSimulator: Sendable {
     /// Whether the swipe direction is reversed (e.g. right <-> left).
     private let reverseButtons: Mutex<Bool> = Mutex(UserDefaults.standard.bool(forKey: Keys.reverse))
 
+    /// Store the event tap reference to prevent premature release (M4 Mac compatibility)
+    private let activeEventTap: Mutex<CFMachPort?> = Mutex(nil)
+
     private init() { }
 
     // MARK: - Public
@@ -95,17 +98,39 @@ final class SwipeSimulator: Sendable {
                 1 << CGEventType.otherMouseDown.rawValue | 1 << CGEventType.otherMouseUp.rawValue
             )
 
-            guard let eventTap = CGEvent.tapCreate(
-                tap: .cghidEventTap,
-                place: .headInsertEventTap,
-                options: .defaultTap,
-                eventsOfInterest: eventMask,
-                callback: mouseEventCallBack,
-                userInfo: nil)
-            else {
+            // Try multiple tap locations for M4 Mac compatibility
+            let tapConfigurations: [(tap: CGEventTapLocation, place: CGEventTapPlacement, options: CGEventTapOptions)] = [
+                (.cghidEventTap, .headInsertEventTap, .defaultTap),
+                (.cgSessionEventTap, .headInsertEventTap, .defaultTap),
+                (.cghidEventTap, .tailAppendEventTap, .defaultTap),
+                (.cgAnnotatedSessionEventTap, .headInsertEventTap, .defaultTap)
+            ]
+
+            var eventTap: CFMachPort?
+            for config in tapConfigurations {
+                eventTap = CGEvent.tapCreate(
+                    tap: config.tap,
+                    place: config.place,
+                    options: config.options,
+                    eventsOfInterest: eventMask,
+                    callback: mouseEventCallBack,
+                    userInfo: nil)
+
+                if eventTap != nil {
+                    #if DEBUG
+                    print("Event tap created successfully with tap location: \(config.tap.rawValue)")
+                    #endif
+                    break
+                }
+            }
+
+            guard let eventTap else {
                 isRunning = false
                 throw EventTap.failedSetup
             }
+
+            // Store the tap reference to prevent premature release (M4 Mac fix)
+            self.activeEventTap.withLock { $0 = eventTap }
 
             let runLoopSource = CFMachPortCreateRunLoopSource(nil, eventTap, 0)
             CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
@@ -115,6 +140,13 @@ final class SwipeSimulator: Sendable {
     }
 
     func recreateEventTap() {
+        // Properly clean up old tap before creating new one (M4 Mac compatibility)
+        self.activeEventTap.withLock { tap in
+            if let tap {
+                CFMachPortInvalidate(tap)
+            }
+            tap = nil
+        }
         self.eventTapIsRunning.withLock { $0 = false }
         try? self.setupEventTap()
     }
@@ -148,14 +180,35 @@ final class SwipeSimulator: Sendable {
         }
 
         let number = CGEvent.getIntegerValueField(cgEvent)(.mouseEventButtonNumber)
-        if number == 3 {
+
+        #if DEBUG
+        // Log button presses to help diagnose M4 Mac issues
+        print("Mouse button pressed: \(number)")
+        #endif
+
+        // Standard mapping: button 3 = back, button 4 = forward
+        // Some mice on M4 Macs may report different button numbers
+        switch number {
+        case 3:
+            // Standard back button
             self.fakeSwipe(direction: TLInfoSwipeDirection(kTLInfoSwipeLeft))
             return nil
-        } else if number == 4 {
+        case 4:
+            // Standard forward button
             self.fakeSwipe(direction: TLInfoSwipeDirection(kTLInfoSwipeRight))
             return nil
+        case 5, 6, 7, 8:
+            // Extended button support for mice that may map differently on M4 Macs
+            // Odd numbers (5, 7) map to back/left, even numbers (6, 8) map to forward/right
+            if number % 2 == 1 {
+                self.fakeSwipe(direction: TLInfoSwipeDirection(kTLInfoSwipeLeft))
+            } else {
+                self.fakeSwipe(direction: TLInfoSwipeDirection(kTLInfoSwipeRight))
+            }
+            return nil
+        default:
+            return cgEvent
         }
-        return cgEvent
     }
 
     private func isValidApplication() -> Bool {
