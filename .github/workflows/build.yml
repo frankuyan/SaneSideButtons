@@ -1,0 +1,89 @@
+name: Build SaneSideButtons
+
+on:
+  push:
+    branches: [ main, master, claude/* ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build macOS App
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+    - name: Show Xcode version
+      run: xcodebuild -version
+
+    - name: Build app
+      run: |
+        xcodebuild \
+          -project SaneSideButtons.xcodeproj \
+          -scheme SaneSideButtons \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="-" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          clean build
+
+    - name: Create DMG
+      run: |
+        # Install create-dmg if needed
+        brew install create-dmg || true
+
+        # Create a folder for the DMG contents
+        mkdir -p dmg_temp
+
+        # Copy the app to the temp folder
+        cp -r build/Build/Products/Release/SaneSideButtons.app dmg_temp/
+
+        # Create the DMG
+        create-dmg \
+          --volname "SaneSideButtons" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "SaneSideButtons.app" 175 190 \
+          --hide-extension "SaneSideButtons.app" \
+          --app-drop-link 425 190 \
+          --no-internet-enable \
+          "SaneSideButtons.dmg" \
+          "dmg_temp/" || \
+        hdiutil create -volname "SaneSideButtons" -srcfolder dmg_temp -ov -format UDZO "SaneSideButtons.dmg"
+
+    - name: Upload DMG artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SaneSideButtons-dmg
+        path: SaneSideButtons.dmg
+        retention-days: 30
+
+    - name: Get version
+      id: get_version
+      run: |
+        VERSION=$(defaults read "$(pwd)/build/Build/Products/Release/SaneSideButtons.app/Contents/Info.plist" CFBundleShortVersionString)
+        BUILD=$(defaults read "$(pwd)/build/Build/Products/Release/SaneSideButtons.app/Contents/Info.plist" CFBundleVersion)
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "build=${BUILD}" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION Build: $BUILD"
+
+    - name: Rename DMG with version
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        BUILD="${{ steps.get_version.outputs.build }}"
+        mv SaneSideButtons.dmg "SaneSideButtons-v${VERSION}-build${BUILD}.dmg"
+
+    - name: Upload versioned DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: SaneSideButtons-versioned
+        path: SaneSideButtons-v*.dmg
+        retention-days: 90

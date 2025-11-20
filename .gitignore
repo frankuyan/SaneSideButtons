@@ -1,2 +1,9 @@
 xcuserdata/
 **/.DS_Store
+# Build artifacts
+build/
+*.dmg
+dmg_temp/
+DerivedData/
+*.app
+checksums.txt

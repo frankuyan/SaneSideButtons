@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+    - name: Show Xcode version
+      run: xcodebuild -version
+
+    - name: Build app
+      run: |
+        xcodebuild \
+          -project SaneSideButtons.xcodeproj \
+          -scheme SaneSideButtons \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="-" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          clean build
+
+    - name: Get version info
+      id: version_info
+      run: |
+        VERSION=$(defaults read "$(pwd)/build/Build/Products/Release/SaneSideButtons.app/Contents/Info.plist" CFBundleShortVersionString)
+        BUILD=$(defaults read "$(pwd)/build/Build/Products/Release/SaneSideButtons.app/Contents/Info.plist" CFBundleVersion)
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "build=${BUILD}" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION Build: $BUILD"
+
+    - name: Create DMG
+      run: |
+        # Install create-dmg if needed
+        brew install create-dmg || true
+
+        # Create a folder for the DMG contents
+        mkdir -p dmg_temp
+
+        # Copy the app to the temp folder
+        cp -r build/Build/Products/Release/SaneSideButtons.app dmg_temp/
+
+        # Get version for filename
+        VERSION="${{ steps.version_info.outputs.version }}"
+        BUILD="${{ steps.version_info.outputs.build }}"
+
+        # Create the DMG with versioned name
+        create-dmg \
+          --volname "SaneSideButtons" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "SaneSideButtons.app" 175 190 \
+          --hide-extension "SaneSideButtons.app" \
+          --app-drop-link 425 190 \
+          --no-internet-enable \
+          "SaneSideButtons-v${VERSION}-build${BUILD}.dmg" \
+          "dmg_temp/" || \
+        hdiutil create -volname "SaneSideButtons" -srcfolder dmg_temp -ov -format UDZO "SaneSideButtons-v${VERSION}-build${BUILD}.dmg"
+
+        # Also create a simple "latest" version
+        cp "SaneSideButtons-v${VERSION}-build${BUILD}.dmg" "SaneSideButtons.dmg"
+
+    - name: Calculate checksums
+      run: |
+        shasum -a 256 SaneSideButtons*.dmg > checksums.txt
+        cat checksums.txt
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          SaneSideButtons-v*.dmg
+          SaneSideButtons.dmg
+          checksums.txt
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          ## SaneSideButtons v${{ steps.version_info.outputs.version }}
+
+          ### Installation
+          1. Download `SaneSideButtons.dmg`
+          2. Open the DMG file
+          3. Drag `SaneSideButtons.app` to your Applications folder
+          4. Launch the app and grant accessibility permissions when prompted
+
+          ### Changes in this release
+          See the changelog below for details.
+
+          ### Checksums
+          SHA-256 checksums are available in `checksums.txt`
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -22,7 +22,17 @@ brew install --cask sanesidebuttons
 ## Compatibility
 
 - macOS Ventura (13.0) and above
-- Intel and Apple Silicon
+- Intel and Apple Silicon (including M4 Macs)
+
+## Building from Source
+
+If you want to build SaneSideButtons from source or contribute to development:
+
+1. Clone the repository
+2. Run `./build_dmg.sh` to build and create a DMG
+3. See [BUILD.md](BUILD.md) for detailed build instructions
+
+Automated builds are available via GitHub Actions for every commit.
 
 ## Automatic launch
 To launch SaneSideButtons automatically when you log in on your Mac:
